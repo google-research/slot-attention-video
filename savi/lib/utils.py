@@ -31,10 +31,11 @@ import matplotlib
 import matplotlib.pyplot as plt
 import ml_collections
 import numpy as np
+import skimage.transform
 from savi.lib import metrics
 import tensorflow as tf
 
-Array = jnp.ndarray
+Array = Union[np.ndarray, jnp.ndarray]
 ArrayTree = Union[Array, Iterable["ArrayTree"], Mapping[str, "ArrayTree"]]  # pytype: disable=not-supported-yet
 DictTree = Dict[str, Union[Array, "DictTree"]]  # pytype: disable=not-supported-yet
 PRNGKey = Array
@@ -171,12 +172,20 @@ def prepare_images_for_logging(
   """Prepare images from batch and/or model predictions for logging."""
 
   images = dict()
+  # Converts all tensors to numpy arrays to run everything on CPU as JAX
+  # eager mode is inefficient and because memory usage from these ops may
+  # lead to OOM errors.
+  batch = jax.tree_map(np.array, batch)
+  preds = jax.tree_map(np.array, preds)
+
+  if n_samples <= 0:
+    return images
 
   if not first_replica_only:
     # Move the two leading batch dimensions into a single dimension. We do this
     # to plot the same number of examples regardless of the data parallelism.
-    batch = jax.tree_map(lambda x: jnp.reshape(x, (-1,) + x.shape[2:]), batch)
-    preds = jax.tree_map(lambda x: jnp.reshape(x, (-1,) + x.shape[2:]), preds)
+    batch = jax.tree_map(lambda x: np.reshape(x, (-1,) + x.shape[2:]), batch)
+    preds = jax.tree_map(lambda x: np.reshape(x, (-1,) + x.shape[2:]), preds)
   else:
     batch = jax.tree_map(lambda x: x[0], batch)
     preds = jax.tree_map(lambda x: x[0], preds)
@@ -211,7 +220,7 @@ def prepare_images_for_logging(
               preds["outputs"]["segmentations"], min_n_colors=min_n_colors))
 
   def shape_fn(x):
-    if isinstance(x, jnp.ndarray):
+    if isinstance(x, (np.ndarray, jnp.ndarray)):
       return x.shape
 
   # Log intermediate variables.
@@ -226,6 +235,7 @@ def prepare_images_for_logging(
         if not isinstance(log_vars, Sequence):
           log_vars = [log_vars]
         for i, log_var in enumerate(log_vars):
+          log_var = np.array(log_var)  # Moves log_var to CPU.
           images[key + "_" + str(i)] = video_to_image_grid(log_var)
       else:
         logging.warning("%s not found in intermediates", path)
@@ -237,6 +247,7 @@ def prepare_images_for_logging(
         if not isinstance(log_vars, Sequence):
           log_vars = [log_vars]
         for i, log_var in enumerate(log_vars):
+          log_var = np.array(log_var)  # Moves log_var to CPU.
           images.update(
               prepare_attention_maps_for_logging(
                   attn_maps=log_var,
@@ -280,9 +291,14 @@ def prepare_attention_maps_for_logging(attn_maps: Array, key: str,
     # overlays attention maps on video is helpful.
     video = video[:n_samples, :n_frames]
     # video.shape: [bs, seq_len, h, w, 3]
-    video_resized = jax.image.resize(video, [bs, seq_len, h_attn, w_attn, 3],
-                                     method=jax.image.ResizeMethod.LINEAR)
-    attn_overlayed = attn * jnp.expand_dims(video_resized, 2)
+    video_resized = []
+    for i in range(n_samples):
+      for j in range(n_frames):
+        video_resized.append(
+            skimage.transform.resize(video[i, j], (h_attn, w_attn), order=1))
+    video_resized = np.array(video_resized).reshape(
+        (bs, seq_len, h_attn, w_attn, 3))
+    attn_overlayed = attn * np.expand_dims(video_resized, 2)
     images[f"{key}_head_{head_idx}_overlayed"] = video_to_image_grid(
         attn_overlayed)
 
@@ -294,18 +310,18 @@ def convert_categories_to_color(
   """Converts int-valued categories to color in last axis of input tensor.
 
   Args:
-    inputs: `jnp.ndarray` of arbitrary shape with integer entries, encoding the
+    inputs: `np.ndarray` of arbitrary shape with integer entries, encoding the
       categories.
     min_n_colors: Minimum number of colors (excl. black) to encode categories.
     include_black: Include black as 0-th entry in the color palette. Increases
       `min_n_colors` by 1 if True.
 
   Returns:
-    `jnp.ndarray` with RGB colors in last axis.
+    `np.ndarray` with RGB colors in last axis.
   """
   if inputs.shape[-1] == 1:  # Strip category axis.
-    inputs = jnp.squeeze(inputs, axis=-1)
-  inputs = jnp.array(inputs, dtype=jnp.int32)  # Convert to int.
+    inputs = np.squeeze(inputs, axis=-1)
+  inputs = np.array(inputs, dtype=np.int32)  # Convert to int.
 
   # Infer number of colors from inputs.
   n_colors = int(inputs.max()) + 1  # One color per category incl. 0.
@@ -318,17 +334,17 @@ def convert_categories_to_color(
   rgb_colors = get_uniform_colors(n_colors)
 
   if include_black:  # Add black as color for zero-th index.
-    rgb_colors = jnp.concatenate((jnp.zeros((1, 3)), rgb_colors), axis=0)
+    rgb_colors = np.concatenate((np.zeros((1, 3)), rgb_colors), axis=0)
   return rgb_colors[inputs]
 
 
 def get_uniform_colors(n_colors: int) -> Array:
   """Get n_colors with uniformly spaced hues."""
-  hues = jnp.linspace(0, 1, n_colors, endpoint=False)
-  hsv_colors = jnp.concatenate(
-      (jnp.expand_dims(hues, axis=1), jnp.ones((n_colors, 2))), axis=1)
+  hues = np.linspace(0, 1, n_colors, endpoint=False)
+  hsv_colors = np.concatenate(
+      (np.expand_dims(hues, axis=1), np.ones((n_colors, 2))), axis=1)
   rgb_colors = matplotlib.colors.hsv_to_rgb(hsv_colors)
-  return jnp.array(rgb_colors)  # rgb_colors.shape = (n_colors, 3)
+  return rgb_colors  # rgb_colors.shape = (n_colors, 3)
 
 
 def unflatten_image(image: Array, width: Optional[int] = None) -> Array:
@@ -336,7 +352,7 @@ def unflatten_image(image: Array, width: Optional[int] = None) -> Array:
   n_channels = image.shape[-1]
   # If width is not provided, we assume that the image is square.
   if width is None:
-    width = int(jnp.floor(jnp.sqrt(image.shape[-2])))
+    width = int(np.floor(np.sqrt(image.shape[-2])))
     height = width
     assert width * height == image.shape[-2], "Image is not square."
   else:
@@ -348,14 +364,14 @@ def video_to_image_grid(video: Array) -> Array:
   """Transform video to image grid by folding sequence dim along width."""
   if len(video.shape) == 5:
     n_samples, n_frames, height, width, n_channels = video.shape
-    video = jnp.transpose(video, (0, 2, 1, 3, 4))  # Swap n_frames and height.
-    image_grid = jnp.reshape(
+    video = np.transpose(video, (0, 2, 1, 3, 4))  # Swap n_frames and height.
+    image_grid = np.reshape(
         video, (n_samples, height, n_frames * width, n_channels))
   elif len(video.shape) == 6:
     n_samples, n_frames, n_slots, height, width, n_channels = video.shape
     # Put n_frames next to width.
-    video = jnp.transpose(video, (0, 2, 3, 1, 4, 5))
-    image_grid = jnp.reshape(
+    video = np.transpose(video, (0, 2, 3, 1, 4, 5))
+    image_grid = np.reshape(
         video, (n_samples, n_slots * height, n_frames * width, n_channels))
   else:
     raise ValueError("Unsupported video shape for visualization.")
@@ -372,12 +388,12 @@ def draw_bounding_boxes(video: Array,
   b, t, h, w, c = video.shape
   n = boxes.shape[2]
   image_grid = tf.image.draw_bounding_boxes(
-      jnp.reshape(video, (b * t, h, w, c)),
-      jnp.reshape(boxes, (b * t, n, 4)),
+      np.reshape(video, (b * t, h, w, c)),
+      np.reshape(boxes, (b * t, n, 4)),
       colors).numpy()
-  image_grid = jnp.reshape(
-      jnp.transpose(jnp.reshape(image_grid, (b, t, h, w, c)),
-                    (0, 2, 1, 3, 4)),
+  image_grid = np.reshape(
+      np.transpose(np.reshape(image_grid, (b, t, h, w, c)),
+                   (0, 2, 1, 3, 4)),
       (b, h, t * w, c))
   return image_grid
 

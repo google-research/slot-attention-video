@@ -17,9 +17,9 @@ set -e
 set -x
 
 
-virtualenv -p python3 .
-source ./bin/activate
+virtualenv -p python3 ./venv
+source ./venv/bin/activate
 
 pip3 install -r requirements.txt
 
-python -m savi.main --config configs/movi/savi_conditional_bbox.py --workdir tmp/
+python -m savi.main --config savi/configs/movi/savi_conditional_small.py --workdir tmp/
