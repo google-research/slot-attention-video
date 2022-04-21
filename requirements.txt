@@ -1,3 +1,4 @@
+-f https://storage.googleapis.com/jax-releases/jax_releases.html
 jax[cuda]>=0.3.2
 absl-py>=0.12.0
 numpy>=1.21.5
