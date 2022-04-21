@@ -58,14 +58,14 @@ To run SAVi on other MOVi dataset variants, follow the instructions above while 
 
 ## Expected results
 
-At present, this repository only contains the smallest SAVi model configuration from our [ICLR 2022 paper](https://arxiv.org/abs/2111.12594). We here refer to this model as SAVi-S: it is trained and evaluated on downscaled 64x64 frames for all datasets. Configuration files and expected results for larger model variants (SAVi-M and SAVi-L, operating on 128x128 frames and using stronger visual backbones) will be added shortly.
+At present, this repository only contains the SAVi model configurations without ResNet backbone from our [ICLR 2022 paper](https://arxiv.org/abs/2111.12594). We here refer to these models as SAVi-S and SAVi-M. SAVi-S is trained and evaluated on downscaled 64x64 frames, whereas SAVi-M uses 128x128 frames and a larger CNN backbone. Expected results and a configuration file for the largest SAVi model variant with ResNet backbone (SAVi-L) will be added shortly.
 
 The released MOVi datasets as part of [Kubric](https://github.com/google-research/kubric/) differ slightly from the ones used in our [ICLR 2022 paper](https://arxiv.org/abs/2111.12594) and are of slightly higher complexity (e.g., more variation in backgrounds), results are therefore not directly comparable. MOVi-A is approximately comparable to the "MOVi" dataset used in our [ICLR 2022 paper](https://arxiv.org/abs/2111.12594), whereas MOVi-C is approximately comparable to "MOVi++". We provide updated results for our released configs and the MOVi datasets with version `1.0.0` below.
 
 | Model      | MOVi-A     | MOVi-B     | MOVi-C     | MOVi-D     | MOVi-E     |
 |------------|------------|------------|------------|------------|------------|
 | **SAVi-S** | 92.1 ± 0.1 | 72.2 ± 0.5 | 64.7 ± 0.3 | 33.8 ± 7.7 | 8.3 ± 0.9  |
-| **SAVi-M** | TBA        | TBA        | TBA        | TBA        | TBA        |
+| **SAVi-M** | 92.5 ± 1.7 | 78.6 ± 0.3 | 69.4 ± 0.6 | 29.2 ± 8.5 | 14.0 ± 1.0 |
 | **SAVi-L** | TBA        | TBA        | TBA        | TBA        | TBA        |
 
 All results are in terms of **FG-ARI** (in %) on validation splits. Mean ± standard error over 5 seeds. All SAVi models reported above use bounding boxes of the first video frame as conditioning signal.
