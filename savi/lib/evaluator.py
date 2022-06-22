@@ -269,16 +269,18 @@ def evaluate(
     raise NotImplementedError(
         "metrics_on_cpu feature cannot be used in a multi-host setup."
         " This experiment is using {} hosts.".format(jax.process_count()))
-  metric_devices = jax.devices("cpu") if metrics_on_cpu else jax.local_devices()
+  metric_devices = jax.devices("cpu") if metrics_on_cpu else jax.devices()
 
   p_eval_first_step = jax.pmap(
       eval_first_step,
       axis_name="batch",
-      static_broadcasted_argnums=(0, 5))
+      static_broadcasted_argnums=(0, 5),
+      devices=jax.devices())
   p_eval_continued_step = jax.pmap(
       eval_continued_step,
       axis_name="batch",
-      static_broadcasted_argnums=(0))
+      static_broadcasted_argnums=(0),
+      devices=jax.devices())
   p_get_eval_metrics = jax.pmap(
       get_eval_metrics,
       axis_name="batch",
