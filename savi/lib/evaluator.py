@@ -160,7 +160,7 @@ def eval_step(
     slice_size: Optional[int] = None,
     slice_keys: Optional[Sequence[str]] = None,
     conditioning_key: Optional[str] = None,
-    remove_state_from_predictions: bool = True
+    remove_from_predictions: Optional[Sequence[str]] = None
 ) -> Dict[str, ArrayTree]:
   """Compute the metrics for the given model in inference mode.
 
@@ -182,12 +182,14 @@ def eval_step(
     conditioning_key: Optional string. If provided, defines the batch key to be
       used as conditioning signal for the model. Otherwise this is inferred from
       the available keys in the batch.
-    remove_state_from_predictions: Remove keys "states" and "states_pred" from
-      model output to save memory. Disable this if either of these are required
-      in the loss function or for visualization.
+    remove_from_predictions: Remove the provided keys. The default None removes
+      "states" and "states_pred" from model output to save memory. Disable this
+      if either of these are required in the loss function or for visualization.
   Returns:
     Model predictions.
   """
+  if remove_from_predictions is None:
+    remove_from_predictions = ["states", "states_pred"]
 
   seq_len = batch["video"].shape[2]
   # Sliced evaluation (i.e. on smaller temporal slices of the video).
@@ -220,10 +222,9 @@ def eval_step(
       preds_per_slice.append(preds_slice)
 
     # Remove states from predictions before concat to save memory.
-    if remove_state_from_predictions:
-      for k in ["states", "states_pred"]:
-        for i in range(num_slices):
-          _ = preds_per_slice[i].pop(k, None)
+    for k in remove_from_predictions:
+      for i in range(num_slices):
+        _ = preds_per_slice[i].pop(k, None)
 
     # Join predictions along sequence dimension.
     concat_fn = lambda _, *x: functools.partial(np.concatenate, axis=2)([*x])
@@ -238,9 +239,8 @@ def eval_step(
     preds = p_eval_first_step(model, state.variables,
                               state.optimizer.target, batch, rng,
                               conditioning_key)
-    if remove_state_from_predictions:
-      _ = preds.pop("states", None)
-      _ = preds.pop("states_pred", None)
+    for k in remove_from_predictions:
+      _ = preds.pop(k, None)
 
   return preds
 
@@ -256,7 +256,7 @@ def evaluate(
     slice_size: Optional[int] = None,
     slice_keys: Optional[Sequence[str]] = None,
     conditioning_key: Optional[str] = None,
-    remove_state_from_predictions: bool = True,
+    remove_from_predictions: Optional[Sequence[str]] = None,
     metrics_on_cpu: bool = False,
     ) -> Tuple[metrics.Collection, Dict[str, ArrayTree], Dict[str, ArrayTree]]:
   """Evaluate the model on the given dataset."""
@@ -305,7 +305,7 @@ def evaluate(
         slice_size=slice_size,
         slice_keys=slice_keys,
         conditioning_key=conditioning_key,
-        remove_state_from_predictions=remove_state_from_predictions)
+        remove_from_predictions=remove_from_predictions)
 
     if metrics_on_cpu:
       # Reshape replica dim and batch-dims to work with metric_devices.

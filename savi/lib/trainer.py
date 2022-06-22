@@ -307,8 +307,7 @@ def evaluate(model, state, eval_ds, loss_fn_eval, eval_metrics_cls, config,
       slice_size=config.get("eval_slice_size"),
       slice_keys=config.get("eval_slice_keys"),
       conditioning_key=config.get("conditioning_key"),
-      remove_state_from_predictions=config.get("remove_state_from_predictions",
-                                               True),
+      remove_from_predictions=config.get("remove_from_predictions"),
       metrics_on_cpu=config.get("metrics_on_cpu", False))
 
   metrics_res = eval_metrics.compute()
