@@ -65,7 +65,7 @@ The released MOVi datasets as part of [Kubric](https://github.com/google-researc
 | Model      | MOVi-A     | MOVi-B     | MOVi-C     | MOVi-D     | MOVi-E     |
 |------------|------------|------------|------------|------------|------------|
 | **SAVi-S** | 92.1 ± 0.1 | 72.2 ± 0.5 | 64.7 ± 0.3 | 33.8 ± 7.7 | 8.3 ± 0.9  |
-| **SAVi-M** | 92.5 ± 1.7 | 78.6 ± 0.3 | 69.4 ± 0.6 | 29.2 ± 8.5 | 14.0 ± 1.0 |
+| **SAVi-M** | 93.4 ± 1.0 | 75.1 ± 0.5 | 67.4 ± 0.5 | 20.8 ± 2.2 | 12.2 ± 1.1 |
 | **SAVi-L** | TBA        | TBA        | TBA        | TBA        | TBA        |
 
 All results are in terms of **FG-ARI** (in %) on validation splits. Mean ± standard error over 5 seeds. All SAVi models reported above use bounding boxes of the first video frame as conditioning signal.
