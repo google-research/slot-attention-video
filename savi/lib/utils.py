@@ -24,7 +24,7 @@ import flax
 from flax import linen as nn
 from flax import traverse_util
 import jax
-from jax.experimental import optimizers as jax_optim
+from jax.example_libraries import optimizers as jax_optim
 import jax.numpy as jnp
 import jax.ops
 import matplotlib
@@ -47,7 +47,7 @@ MetricSpec = Dict[str, str]
 class TrainState:
   """Data structure for checkpointing the model."""
   step: int
-  optimizer: flax.optim.Optimizer
+  optimizer: flax.optim.Optimizer  # pytype: disable=module-attr
   variables: flax.core.FrozenDict
   rng: PRNGKey
 
@@ -85,7 +85,7 @@ def flatten_named_dicttree(metrics_res: DictTree, sep: str = "/"):
 def clip_grads(grad_tree: ArrayTree, max_norm: float, epsilon: float = 1e-6):
   """Gradient clipping with epsilon.
 
-  Adapted from jax.experimental.optimizers.clip_grads.
+  Adapted from jax.example_libraries.optimizers.clip_grads.
 
   Args:
     grad_tree: ArrayTree of gradients.

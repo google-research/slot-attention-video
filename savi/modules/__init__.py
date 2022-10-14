@@ -27,5 +27,7 @@ from .initializers import (GaussianStateInit, ParamStateInit,
                            CoordinateEncoderStateInit)
 from .misc import (Dense, GRU, Identity, MLP, PositionEmbedding, Readout)
 from .video import (CorrectorPredictorTuple, FrameEncoder, Processor, SAVi)
+from .resnet import (ResNet18, ResNet34, ResNet50, ResNet101, ResNet152,
+                     ResNet200)
 
 

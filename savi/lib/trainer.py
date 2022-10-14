@@ -48,7 +48,7 @@ def train_step(
     rng: PRNGKey,
     step: int,
     state_vars: flax.core.FrozenDict,
-    opt: flax.optim.Optimizer,
+    opt: flax.optim.Optimizer,  # pytype: disable=module-attr
     batch: Dict[str, ArrayTree],
     loss_fn: losses.LossFn,
     learning_rate_fn: Callable[[Array], Array],
@@ -57,7 +57,7 @@ def train_step(
     ground_truth_max_num_instances: int,
     conditioning_key: Optional[str] = None,
     max_grad_norm: Optional[float] = None,
-    ) -> Tuple[flax.optim.Optimizer, flax.core.FrozenDict, PRNGKey,
+    ) -> Tuple[flax.optim.Optimizer, flax.core.FrozenDict, PRNGKey,  # pytype: disable=module-attr
                metrics.Collection, int]:
   """Perform a single training step.
 
@@ -166,7 +166,7 @@ def train_and_evaluate(config: ml_collections.ConfigDict,
       peak_value=config.learning_rate,
       warmup_steps=config.warmup_steps,
       decay_steps=config.num_train_steps)
-  optimizer_def = flax.optim.Adam(learning_rate=config.learning_rate)
+  optimizer_def = flax.optim.Adam(learning_rate=config.learning_rate)  # pytype: disable=module-attr
 
   # Construct TrainMetrics and EvalMetrics, metrics collections.
   train_metrics_cls = utils.make_metrics_collection("TrainMetrics",

@@ -228,7 +228,7 @@ def eval_step(
 
     # Join predictions along sequence dimension.
     concat_fn = lambda _, *x: functools.partial(np.concatenate, axis=2)([*x])
-    preds = jax.tree_multimap(concat_fn, preds_per_slice[0], *preds_per_slice)
+    preds = jax.tree_map(concat_fn, preds_per_slice[0], *preds_per_slice)
 
     # Truncate to original sequence length.
     # NOTE: This op assumes that all predictions have a (complete) time axis.

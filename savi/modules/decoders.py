@@ -38,6 +38,7 @@ class SpatialBroadcastDecoder(nn.Module):
   resolution: Sequence[int]
   backbone: Callable[[], nn.Module]
   pos_emb: Callable[[], nn.Module]
+  early_fusion: bool = False  # Fuse slot features before constructing targets.
   target_readout: Optional[Callable[[], nn.Module]] = None
 
   # Vmapped application of module, consumes time axis (axis=1).
@@ -68,26 +69,39 @@ class SpatialBroadcastDecoder(nn.Module):
       # Define intermediates for logging / visualization.
       self.sow("intermediates", "alphas", alphas)
 
+    if self.early_fusion:
+      # To save memory, fuse the slot features before predicting targets.
+      # The final target output should be equivalent to the late fusion when
+      # using linear prediction.
+      bb_features = jnp.reshape(
+          bb_features, (batch_size, n_slots) + spatial_dims + (-1,))
+      # Combine backbone features by alpha masks.
+      bb_features = jnp.sum(bb_features * alphas, axis=1)
+
     targets_dict = self.target_readout()(bb_features, train)
 
     preds_dict = dict()
     for target_key, channels in targets_dict.items():
+      if self.early_fusion:
+        # decoded_target.shape = (batch_size, h, w, c) after next line.
+        decoded_target = channels
+      else:
+        # channels.shape = (batch_size, n_slots, h, w, c)
+        channels = jnp.reshape(
+            channels, (batch_size, n_slots) + (spatial_dims) + (-1,))
 
-      # channels.shape = (batch_size, n_slots, h, w, c)
-      channels = jnp.reshape(
-          channels, (batch_size, n_slots) + (spatial_dims) + (-1,))
+        # masked_channels.shape = (batch_size, n_slots, h, w, c)
+        masked_channels = channels * alphas
 
-      # masked_channels.shape = (batch_size, n_slots, h, w, c)
-      masked_channels = channels * alphas
-
-      # decoded_target.shape = (batch_size, h, w, c)
-      decoded_target = jnp.sum(masked_channels, axis=1)  # Combine target.
+        # decoded_target.shape = (batch_size, h, w, c)
+        decoded_target = jnp.sum(masked_channels, axis=1)  # Combine target.
       preds_dict[target_key] = decoded_target
 
       if not train:
       # Define intermediates for logging / visualization.
         self.sow("intermediates", f"{target_key}_slots", channels)
-        self.sow("intermediates", f"{target_key}_masked", masked_channels)
+        if not self.early_fusion:
+          self.sow("intermediates", f"{target_key}_masked", masked_channels)
         self.sow("intermediates", f"{target_key}_combined", decoded_target)
 
     preds_dict["segmentations"] = jnp.argmax(alpha_logits, axis=1)

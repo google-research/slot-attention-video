@@ -184,5 +184,11 @@ class FrameEncoder(nn.Module):
     elif self.reduction is not None:
       raise ValueError("Unknown reduction type: {}.".format(self.reduction))
 
-    x = self.output_transform()(x, train=train)
+    output_block = self.output_transform()
+
+    if hasattr(output_block, "qkv_size"):
+      # Project to qkv_size if used transformer.
+      x = nn.relu(nn.Dense(output_block.qkv_size)(x))
+
+    x = output_block(x, train=train)
     return x

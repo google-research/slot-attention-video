@@ -910,3 +910,187 @@ class FlowToRgb:
       features[self.flow_key] = tf.image.convert_image_dtype(
           flow_rgb, tf.float32)
     return features
+
+
+@dataclasses.dataclass
+class TransformDepth:
+  """Applies one of several possible transformations to depth features."""
+  transform: str
+  depth_key: str = DEPTH
+
+  def __call__(self, features: Features) -> Features:
+    if self.depth_key in features:
+      if self.transform == "log":
+        depth_norm = tf.math.log(features[self.depth_key])
+      elif self.transform == "log_plus":
+        depth_norm = tf.math.log(1. + features[self.depth_key])
+      elif self.transform == "invert_plus":
+        depth_norm = 1. / (1. + features[self.depth_key])
+      else:
+        raise ValueError(f"Unknown depth transformation {self.transform}")
+
+      features[self.depth_key] = depth_norm
+    return features
+
+
+@dataclasses.dataclass
+class RandomResizedCrop(RandomVideoPreprocessOp):
+  """Random-resized crop for each of the two views.
+
+  Assumption: Height and width are the same for all video-like modalities.
+
+  We randomly crop the input and record the transformation this crop corresponds
+  to as a new feature. Croped images are resized to (height, width). Boxes are
+  corrected adjusted and boxes outside the crop are discarded. Flow is rescaled
+  so as to be pixel accurate after the operation. lidar_points_2d are
+  transformed using the computed transformation. These points may lie outside
+  the image after the operation.
+
+  Attr:
+    height: An integer representing the height to resize to.
+    width: An integer representing the width to resize to.
+    min_object_covered, aspect_ratio_range, area_range, max_attempts: See
+      docstring of `stateless_sample_distorted_bounding_box`. Aspect ratio range
+      has not been scaled by target aspect ratio. This differs from other
+      implementations of this data augmentation.
+    relative_box_area_threshold: If ratio of areas before and after cropping are
+      lower than this threshold, then the box is discarded (set to NOTRACK_BOX).
+  """
+  # Target size.
+  height: int
+  width: int
+
+  # Crop sampling attributes.
+  min_object_covered: float = 0.1
+  aspect_ratio_range: Tuple[float, float] = (3. / 4., 4. / 3.)
+  area_range: Tuple[float, float] = (0.08, 1.0)
+  max_attempts: int = 100
+
+  # Box retention attributes
+  relative_box_area_threshold: float = 0.0
+
+  def apply(self, tensor: tf.Tensor, seed: tf.Tensor, key: str,
+            video_shape: tf.Tensor) -> tf.Tensor:
+    """Applies the crop operation on tensor."""
+    param = self.sample_augmentation_params(video_shape, seed)
+    si, sj = param[0], param[1]
+    crop_h, crop_w = param[2], param[3]
+
+    to_float32 = lambda x: tf.cast(x, tf.float32)
+
+    if key == self.boxes_key:
+      # First crop the boxes.
+      cropped_boxes = crop_or_pad_boxes(
+          tensor, si, sj,
+          crop_h, crop_w,
+          video_shape[1], video_shape[2])
+      # We do not need to scale the boxes because they are in normalized coords.
+      resized_boxes = cropped_boxes
+      # Lastly detects NOTRACK_BOX boxes and avoid manipulating those.
+      no_track_boxes = tf.convert_to_tensor(NOTRACK_BOX)
+      no_track_boxes = tf.reshape(no_track_boxes, [1, 4])
+      resized_boxes = tf.where(
+          tf.reduce_all(tensor == no_track_boxes, axis=-1, keepdims=True),
+          tensor, resized_boxes)
+
+      if self.relative_box_area_threshold > 0:
+        # Thresholds boxes that have been cropped too much, as in their area is
+        # lower, in relative terms, than `relative_box_area_threshold`.
+        area_before_crop = tf.reduce_prod(tensor[..., 2:] - tensor[..., :2],
+                                          axis=-1)
+        # Sets minimum area_before_crop to 1e-8 we avoid divisions by 0.
+        area_before_crop = tf.maximum(area_before_crop,
+                                      tf.zeros_like(area_before_crop) + 1e-8)
+        area_after_crop = tf.reduce_prod(
+            resized_boxes[..., 2:] - resized_boxes[..., :2], axis=-1)
+        # As the boxes have normalized coordinates, they need to be rescaled to
+        # be compared against the original uncropped boxes.
+        scale_x = to_float32(crop_w) / to_float32(self.width)
+        scale_y = to_float32(crop_h) / to_float32(self.height)
+        area_after_crop *= scale_x * scale_y
+
+        ratio = area_after_crop / area_before_crop
+        return tf.where(
+            tf.expand_dims(ratio > self.relative_box_area_threshold, -1),
+            resized_boxes, no_track_boxes)
+
+      else:
+        return resized_boxes
+
+    else:
+      if key in (self.padding_mask_key, self.segmentations_key):
+        tensor = tensor[..., tf.newaxis]
+
+      # Crop.
+      seq_len, n_channels = tensor.get_shape()[0], tensor.get_shape()[3]
+      crop_size = (seq_len, crop_h, crop_w, n_channels)
+      tensor = tf.slice(tensor, tf.stack([0, si, sj, 0]), crop_size)
+
+      # Resize.
+      resize_method = tf.image.ResizeMethod.BILINEAR
+      if (tensor.dtype == tf.int32 or tensor.dtype == tf.int64 or
+          tensor.dtype == tf.uint8):
+        resize_method = tf.image.ResizeMethod.NEAREST_NEIGHBOR
+      tensor = tf.image.resize(tensor, [self.height, self.width],
+                               method=resize_method)
+      out_size = (seq_len, self.height, self.width, n_channels)
+      tensor = tf.ensure_shape(tensor, out_size)
+
+      if key == self.flow_key:
+        # Rescales optical flow.
+        scale_x = to_float32(self.width) / to_float32(crop_w)
+        scale_y = to_float32(self.height) / to_float32(crop_h)
+        tensor = tf.stack(
+            [tensor[..., 0] * scale_y, tensor[..., 1] * scale_x], axis=-1)
+
+      if key in (self.padding_mask_key, self.segmentations_key):
+        tensor = tensor[..., 0]
+      return tensor
+
+  def sample_augmentation_params(self, video_shape: tf.Tensor, rng: tf.Tensor):
+    """Sample a random bounding box for the crop."""
+    sample_bbox = tf.image.stateless_sample_distorted_bounding_box(
+        video_shape[1:],
+        bounding_boxes=tf.constant([0.0, 0.0, 1.0, 1.0],
+                                   dtype=tf.float32, shape=[1, 1, 4]),
+        seed=rng,
+        min_object_covered=self.min_object_covered,
+        aspect_ratio_range=self.aspect_ratio_range,
+        area_range=self.area_range,
+        max_attempts=self.max_attempts,
+        use_image_if_no_bounding_boxes=True)
+    bbox_begin, bbox_size, _ = sample_bbox
+
+    # The specified bounding box provides crop coordinates.
+    offset_y, offset_x, _ = tf.unstack(bbox_begin)
+    target_height, target_width, _ = tf.unstack(bbox_size)
+
+    return tf.stack([offset_y, offset_x, target_height, target_width])
+
+  def estimate_transformation(self, param: tf.Tensor, video_shape: tf.Tensor
+                              ) -> tf.Tensor:
+    """Computes the affine transformation for crop params.
+
+    Args:
+      param: Crop parameters in the [y, x, h, w] format of shape [4,].
+      video_shape: Unused.
+
+    Returns:
+      Affine transformation of shape [3, 3] corresponding to cropping the image
+      at [y, x] of size [h, w] and resizing it into [self.height, self.width].
+    """
+    del video_shape
+    crop = tf.cast(param, tf.float32)
+    si, sj = crop[0], crop[1]
+    crop_h, crop_w = crop[2], crop[3]
+    ei, ej = si + crop_h - 1.0, sj + crop_w - 1.0
+    h, w = float(self.height), float(self.width)
+
+    a1 = (ei - si + 1.)/h
+    a2 = 0.
+    a3 = si - 0.5 + a1 / 2.
+    a4 = 0.
+    a5 = (ej - sj + 1.)/w
+    a6 = sj - 0.5 + a5 / 2.
+    affine = tf.stack([a1, a2, a3, a4, a5, a6, 0., 0., 1.])
+    return tf.reshape(affine, [3, 3])
