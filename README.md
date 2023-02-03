@@ -90,7 +90,7 @@ The released MOVi datasets as part of [Kubric](https://github.com/google-researc
 | **SAVi++** | 85.3 ± 9.8  | 72.5 ± 11.2 | 79.1 ± 2.1 | 84.8 ± 1.4 | 85.1 ± 0.9|
 
 
-All results are in terms of **FG-ARI** (in %) on validation splits. Mean ± standard error over 5 seeds. All SAVi and SAVi++ models reported above use bounding boxes of the first video frame as conditioning signal.
+All results are in terms of **FG-ARI** (in %) on validation splits. Mean ± standard error over 5 seeds. All SAVi and SAVi++ models reported above use bounding boxes of the first video frame as conditioning signal. For simplicity, we evaluate FG-ARI on all frames of the video (incl. the first frame), which differs from the setup described in our ICLR 2022 paper.
 
 ## Cite
 
